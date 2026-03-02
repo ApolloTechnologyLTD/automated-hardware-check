@@ -89,7 +89,7 @@ function Show-Header {
 /_/  |_/_/    \____/_____/_____/\____/    /_/ /_____/\____/_/ /_/_/ |_/\____/_____/\____/\____/   /_/   
 '@
     Write-Host $Banner -ForegroundColor Cyan
-    Write-Host "`n   ULTIMATE HARDWARE DIAGNOSTICS TOOL v$Version" -ForegroundColor White
+    Write-Host "`n    HARDWARE DIAGNOSTICS TOOL v$Version" -ForegroundColor White
     Write-Host "=================================================================================" -ForegroundColor DarkGray
     Write-Host "        [NOTICE] Running in Elevated Permissions" -ForegroundColor Red 
 }
@@ -114,7 +114,7 @@ $ReportItems = @()
 if (!(Test-Path $ReportDir)) { New-Item -ItemType Directory -Path $ReportDir -Force | Out-Null }
 
 Show-Header
-Write-Host "`n[ EXECUTING ULTIMATE HARDWARE DIAGNOSTICS ]" -ForegroundColor Yellow
+Write-Host "`n[ EXECUTING HARDWARE DIAGNOSTICS ]" -ForegroundColor Yellow
 
 $DiagnosticsList = @("System & Boot", "OS & Security", "Processor & Board", "Memory & Virtual", "Physical Storage", "Logical Volumes", "Graphics & Audio", "Network & Comms", "Hardware Health")
 $TotalTasks = $DiagnosticsList.Count
@@ -346,7 +346,7 @@ $HtmlContent = @"
 <body>
 <div class="header">
     <img src="$LogoUrl" alt="Apollo Technology" style="max-height:80px;">
-    <h1>Ultimate Hardware & OS Diagnostics Report</h1>
+    <h1>Hardware & OS Diagnostics Report</h1>
     <div class="meta">
         <div><strong>Ticket:</strong> $TicketNumber<br><strong>Customer:</strong> $CustomerName</div>
         <div style="text-align: right;"><strong>Date:</strong> $CurrentDate<br><strong>Engineer:</strong> $EngineerName</div>
@@ -400,7 +400,7 @@ if ($EmailEnabled -and $PdfFile -and (Test-Path $PdfFile)) {
     Write-Host "`n[ EMAIL REPORT ]" -ForegroundColor Yellow
     Write-Host "   Sending Email to $ToAddress..." -ForegroundColor Cyan
     try {
-        Send-MailMessage -From $FromAddress -To $ToAddress -Subject "Ultimate Hardware Audit: $env:COMPUTERNAME ($TicketNumber)" -Body "Attached is the forensic hardware report for Ticket $TicketNumber ($CustomerName)." -SmtpServer $SmtpServer -Port $SmtpPort -UseSsl $UseSSL -Credential $EmailCreds -Attachments $PdfFile -ErrorAction Stop
+        Send-MailMessage -From $FromAddress -To $ToAddress -Subject "Hardware Audit: $env:COMPUTERNAME ($TicketNumber)" -Body "Attached is the forensic hardware report for Ticket $TicketNumber ($CustomerName)." -SmtpServer $SmtpServer -Port $SmtpPort -UseSsl $UseSSL -Credential $EmailCreds -Attachments $PdfFile -ErrorAction Stop
         Write-Host "   > Email Sent Successfully!" -ForegroundColor Green
     } catch {
         Write-Error "   > Failed to send email. Error: $_"
@@ -410,7 +410,7 @@ if ($EmailEnabled -and $PdfFile -and (Test-Path $PdfFile)) {
 try { [SleepUtils]::SetThreadExecutionState(0x80000000) | Out-Null } catch { }
 
 Write-Host "`n[ COMPLETE ]" -ForegroundColor Green
-Write-Host "Ultimate Diagnostics finished. The report has been opened."
+Write-Host "Hardware Diagnostics finished. The report has been opened."
 
 # --- 8. STOP LOGGING ---
 if ($VerboseMode) {
