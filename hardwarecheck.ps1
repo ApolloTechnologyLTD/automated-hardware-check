@@ -1,17 +1,17 @@
 <#
 .SYNOPSIS
-    Apollo Technology Ultimate Hardware & OS Diagnostics v3.0
+    Apollo Technology Ultimate Hardware & OS Diagnostics v3.1
 .DESCRIPTION
     The most comprehensive native PowerShell hardware diagnostic tool.
-    - INCLUDES: TPM, Secure Boot, Firewall, IP/Wi-Fi, Audio, Universal Device Errors, Logical Volumes.
-    - FIXED: Subexpression parser bug on inline conditional arguments.
-    - FEATURES: Auto-Elevation, Anti-Sleep, PDF Reporting via Edge, Email Delivery.
+    - PATCHED: Subexpression parser bug in System & Boot.
+    - PATCHED: Date conversion error for CimInstance objects.
+    - PATCHED: Divide-by-zero errors for ghost/unformatted partitions.
 #>
 
 # --- 0. CONFIGURATION ---
-$VerboseMode  = $false
+$VerboseMode  = $true
 $LogoUrl      = "https://raw.githubusercontent.com/ApolloTechnologyLTD/computer-health-check/main/Apollo%20Cropped.png"
-$Version      = "3.0 Ultimate"
+$Version      = "3.1 Ultimate"
 $ReportDir    = "C:\HardwareReports"
 
 # --- EMAIL SETTINGS ---
@@ -63,7 +63,7 @@ function Show-Header {
   / /| | / /_/ / / / / /   / /   / / / /    / / / __/ / /   / /_/ /  |/ / / / / /   / / / / / __   \  / 
  / ___ |/ ____/ /_/ / /___/ /___/ /_/ /    / / / /___/ /___/ __  / /|  / /_/ / /___/ /_/ / /_/ /   / /  
 /_/  |_/_/    \____/_____/_____/\____/    /_/ /_____/\____/_/ /_/_/ |_/\____/_____/\____/\____/   /_/   
-                                                                                                         
+
 '@
     Write-Host $Banner -ForegroundColor Cyan
     Write-Host "`n   ULTIMATE HARDWARE DIAGNOSTICS TOOL v$Version" -ForegroundColor White
@@ -106,18 +106,25 @@ $CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($
 Write-Host "   [$CurrentTask/$TotalTasks] Checking Firmware, Boot & TPM..." -ForegroundColor Green
 
 $Bios = Get-CimInstance Win32_BIOS
+$BiosDate = if ($Bios.ReleaseDate) { $Bios.ReleaseDate.ToString('yyyy-MM-dd') } else { "Unknown" }
+
 try { $SecureBoot = Confirm-SecureBootUEFI -ErrorAction Stop; $SBStatus = if ($SecureBoot) { "Enabled" } else { "Disabled" } } catch { $SBStatus = "Unsupported/Legacy" }
 try { $TPM = Get-Tpm -ErrorAction Stop; $TpmStatus = if ($TPM.TpmPresent) { "Ready (v$($TPM.TpmReady))" } else { "Not Present" } } catch { $TpmStatus = "Not Supported" }
 
-Add-Result "System & Boot" "Firmware & BIOS" "<b>Version:</b> $($Bios.SMBIOSBIOSVersion)<br><b>Release Date:</b> $($Bios.ReleaseDate.ToString('yyyy-MM-dd'))<br><b>Secure Boot:</b> $SBStatus" (if ($SBStatus -eq "Enabled") {"Pass"} else {"Warning"})
-Add-Result "System & Boot" "Security Chip" "<b>TPM Status:</b> $TpmStatus" (if ($TpmStatus -match "Ready") {"Pass"} else {"Warning"})
+$SBStatusColor = if ($SBStatus -eq "Enabled") {"Pass"} else {"Warning"}
+$TpmStatusColor = if ($TpmStatus -match "Ready") {"Pass"} else {"Warning"}
+
+Add-Result "System & Boot" "Firmware & BIOS" "<b>Version:</b> $($Bios.SMBIOSBIOSVersion)<br><b>Release Date:</b> $BiosDate<br><b>Secure Boot:</b> $SBStatus" $SBStatusColor
+Add-Result "System & Boot" "Security Chip" "<b>TPM Status:</b> $TpmStatus" $TpmStatusColor
 
 # 2. OS & Security Check
 $CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($DiagnosticsList[1])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
 Write-Host "   [$CurrentTask/$TotalTasks] Checking OS, Updates, and Security Policies..." -ForegroundColor Green
 $OS = Get-CimInstance Win32_OperatingSystem
 $UptimeDays = [math]::Round(((Get-Date) - $OS.LastBootUpTime).TotalDays, 1)
-$InstallDate = [System.Management.ManagementDateTimeConverter]::ToDateTime($OS.InstallDate).ToString("yyyy-MM-dd")
+
+# Fix: Get-CimInstance naturally returns dates as [datetime] objects.
+$InstallDate = if ($OS.InstallDate) { $OS.InstallDate.ToString("yyyy-MM-dd") } else { "Unknown" }
 
 try { $AV = Get-CimInstance -Namespace "root\SecurityCenter2" -Class AntivirusProduct -ErrorAction Stop | Select-Object -ExpandProperty displayName -First 1 } catch { $AV = "Windows Defender / Unknown" }
 try { 
@@ -199,11 +206,16 @@ $CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($
 Write-Host "   [$CurrentTask/$TotalTasks] Checking Partition Space..." -ForegroundColor Green
 $Volumes = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" # Fixed Local Disks Only
 foreach ($Vol in $Volumes) {
-    $TotalGB = [math]::Round($Vol.Size / 1GB, 2)
-    $FreeGB  = [math]::Round($Vol.FreeSpace / 1GB, 2)
-    $FreePct = [math]::Round(($Vol.FreeSpace / $Vol.Size) * 100, 1)
-    $VolStatus = if ($FreePct -gt 15) { "Pass" } else { "Low Space" }
-    Add-Result "Logical Volumes" "Partition: $($Vol.DeviceID)" "<b>Label:</b> $($Vol.VolumeName)<br><b>File System:</b> $($Vol.FileSystem)<br><b>Free Space:</b> $FreeGB GB of $TotalGB GB ($FreePct%)" $VolStatus
+    # FIX: Prevent Divide By Zero on empty/ghost drives
+    if ($Vol.Size -gt 0) {
+        $TotalGB = [math]::Round($Vol.Size / 1GB, 2)
+        $FreeGB  = [math]::Round($Vol.FreeSpace / 1GB, 2)
+        $FreePct = [math]::Round(($Vol.FreeSpace / $Vol.Size) * 100, 1)
+        $VolStatus = if ($FreePct -gt 15) { "Pass" } else { "Low Space" }
+        Add-Result "Logical Volumes" "Partition: $($Vol.DeviceID)" "<b>Label:</b> $($Vol.VolumeName)<br><b>File System:</b> $($Vol.FileSystem)<br><b>Free Space:</b> $FreeGB GB of $TotalGB GB ($FreePct%)" $VolStatus
+    } else {
+        Add-Result "Logical Volumes" "Partition: $($Vol.DeviceID)" "<b>Label:</b> $($Vol.VolumeName)<br>Drive reports 0 bytes capacity (Unformatted/Empty)" "Warning"
+    }
 }
 
 # 7. Graphics & Audio
@@ -232,7 +244,6 @@ foreach ($Net in $Nets) {
     Add-Result "Network & Comms" "$($Net.Description)" "<b>IPv4 Address:</b> $IP<br><b>Gateway:</b> $GW<br><b>MAC:</b> $($Net.MACAddress)" "Connected"
 }
 
-# Try Wi-Fi Info
 try {
     $Wifi = netsh wlan show interfaces | Select-String "SSID|Signal|Radio" | Out-String
     if ($Wifi.Trim().Length -gt 0) {
@@ -245,7 +256,6 @@ try {
 $CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($DiagnosticsList[8])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
 Write-Host "   [$CurrentTask/$TotalTasks] Checking Global Device Manager Errors & Battery..." -ForegroundColor Green
 
-# Universal Error Sweep
 $DeviceErrors = Get-CimInstance Win32_PnPEntity | Where-Object { $_.ConfigManagerErrorCode -ne 0 -and $_.ConfigManagerErrorCode -ne $null }
 if ($DeviceErrors) {
     foreach ($err in $DeviceErrors) { 
@@ -255,7 +265,6 @@ if ($DeviceErrors) {
     Add-Result "Hardware Health" "Device Manager Sweep" "No hardware or driver failures detected across any bus." "Pass"
 }
 
-# Battery
 try {
     $BatFull = Get-CimInstance -ClassName BatteryFullChargedCapacity -Namespace root\wmi -ErrorAction Stop
     $BatStat = Get-CimInstance -ClassName BatteryStaticData -Namespace root\wmi -ErrorAction Stop
