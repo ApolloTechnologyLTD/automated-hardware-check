@@ -12,7 +12,7 @@
 #>
 
 # --- 0. CONFIGURATION ---
-$VerboseMode  = $true        # Set to $true to log raw background processes to C:\temp\hwcheck
+$VerboseMode  = $false        # Set to $true to log raw background processes to C:\temp\hwcheck
 $LogoUrl      = "https://raw.githubusercontent.com/ApolloTechnologyLTD/computer-health-check/main/Apollo%20Cropped.png"
 $Version      = "3.2 Ultimate"
 $ReportDir    = "C:\HardwareReports"
