@@ -14,8 +14,8 @@
 # --- 0. CONFIGURATION ---
 $VerboseMode  = $false        # Set to $true to log raw background processes to C:\temp\hwcheck
 $LogoUrl      = "https://raw.githubusercontent.com/ApolloTechnologyLTD/computer-health-check/main/Apollo%20Cropped.png"
-$Version      = "3.2 Ultimate"
-$ReportDir    = "C:\HardwareReports"
+$Version      = "3.6"
+$ReportDir    = "C:\temp\Apollo_Reports"
 
 # --- EMAIL SETTINGS ---
 $EmailEnabled = $false
@@ -417,4 +417,8 @@ if ($VerboseMode) {
     Stop-Transcript | Out-Null
 }
 
-Pause
+Write-Host "`n------------------------------------------------------------"
+Write-Host "          PROCESS COMPLETED" -ForegroundColor Green
+if (Test-Path $PublicDesktopPdf) { Start-Process $PublicDesktopPdf; Start-Sleep -Seconds 1 }
+Write-Host "------------------------------------------------------------"
+exit
