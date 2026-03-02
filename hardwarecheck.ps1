@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Apollo Technology Ultimate Hardware & OS Diagnostics v3.2
+    Apollo Technology Ultimate Hardware & OS Diagnostics v3.4
 .DESCRIPTION
     The most comprehensive native PowerShell hardware diagnostic tool.
     - INCLUDES: TPM, Secure Boot, Firewall, IP/Wi-Fi, Audio, Universal Device Errors, Logical Volumes.
@@ -8,13 +8,14 @@
     - PATCHED: Date conversion error for CimInstance objects.
     - PATCHED: Divide-by-zero errors for ghost/unformatted partitions.
     - RESTORED: Verbose Transcript logging for background debugging.
-    - FEATURES: Auto-Elevation, Anti-Sleep, PDF Reporting via Edge, Email Delivery.
+    - TWEAKED: Removed bullet points to fix encoding artifacts in PDF generation.
+    - TWEAKED: Updated output directory and footer text.
 #>
 
 # --- 0. CONFIGURATION ---
 $VerboseMode  = $false        # Set to $true to log raw background processes to C:\temp\hwcheck
 $LogoUrl      = "https://raw.githubusercontent.com/ApolloTechnologyLTD/computer-health-check/main/Apollo%20Cropped.png"
-$Version      = "3.6"
+$Version      = "3.7"
 $ReportDir    = "C:\temp\Apollo_Reports"
 
 # --- EMAIL SETTINGS ---
@@ -81,12 +82,12 @@ try { Add-Type -TypeDefinition $sleepBlocker -Language CSharp; $null = [SleepUti
 function Show-Header {
     Clear-Host
     $Banner = @'
-    ___    ____  ____  __    __    ____     ____________________  ___   ______  __    ____  ________  __
-   /   |  / __ \/ __ \/ /   / /   / __ \   /_  __/ ____/ ____/ / / / | / / __ \/ /   / __ \/ ____/\ \/ /
-  / /| | / /_/ / / / / /   / /   / / / /    / / / __/ / /   / /_/ /  |/ / / / / /   / / / / / __   \  / 
- / ___ |/ ____/ /_/ / /___/ /___/ /_/ /    / / / /___/ /___/ __  / /|  / /_/ / /___/ /_/ / /_/ /   / /  
-/_/  |_/_/    \____/_____/_____/\____/    /_/ /_____/\____/_/ /_/_/ |_/\____/_____/\____/\____/   /_/   
-                                                                                                        
+    __  ____  __  _____                 __       ____  _                 
+   / / / / / / /_  __/ (_)___ ___  ____ _/ /____  / __ \(_)___ _____ _____ 
+  / / / / / / / / /   / / __ `__ \/ __ `/ __/ _ \/ / / / / __ `/ __ `/ ___/
+ / /_/ / /_/ / / /   / / / / / / / /_/ / /_/  __/ /_/ / / /_/ / /_/ (__  ) 
+ \____/\____/ /_/   /_/_/ /_/ /_/\__,_/\__/\___/_____/_/\__,_/\__, /____/  
+                                                             /____/        
 '@
     Write-Host $Banner -ForegroundColor Cyan
     Write-Host "`n   ULTIMATE HARDWARE DIAGNOSTICS TOOL v$Version" -ForegroundColor White
@@ -157,7 +158,6 @@ try {
 $FwProfiles = Get-NetFirewallProfile | Where-Object Enabled -eq $true | Select-Object -ExpandProperty Name
 $FwStatus = if ($FwProfiles) { $FwProfiles -join ", " } else { "All Disabled!" }
 
-# Check Pending Reboot via Registry
 $PendingReboot = $false
 if (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired") { $PendingReboot = $true }
 if (Test-Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager") { if ((Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager").PendingFileRenameOperations) { $PendingReboot = $true } }
@@ -193,7 +193,8 @@ $MemStatus = if ($TotalRamGB -ge 8) { "Pass" } else { "Low Memory" }
 $RamDetails = "<b>Total Capacity:</b> ${TotalRamGB} GB<br>"
 foreach ($stick in $RAMs) {
     $Size = [math]::Round($stick.Capacity / 1GB, 1)
-    $RamDetails += "• $($stick.DeviceLocator): ${Size}GB $($stick.Manufacturer) @ $($stick.Speed)MHz<br>"
+    # Replaced bullet points with standard hyphens
+    $RamDetails += "- $($stick.DeviceLocator): ${Size}GB $($stick.Manufacturer) @ $($stick.Speed)MHz<br>"
 }
 Add-Result "Memory & Virtual" "Physical RAM" $RamDetails $MemStatus
 
@@ -252,7 +253,8 @@ foreach ($GPU in $GPUs) {
 
 $Audio = Get-CimInstance Win32_SoundDevice
 $AudioStr = ""
-foreach ($snd in $Audio) { $AudioStr += "• $($snd.Name)<br>" }
+# Replaced bullet points with standard hyphens
+foreach ($snd in $Audio) { $AudioStr += "- $($snd.Name)<br>" }
 if ($AudioStr) { Add-Result "Graphics & Audio" "Audio Devices" $AudioStr "OK" }
 
 # 8. Network
@@ -322,8 +324,8 @@ foreach ($Row in $ReportItems) {
     $TableRows += "<tr><td style='width: 25%;'><strong>$($Row.Component)</strong></td><td style='width: 55%;'>$($Row.Details)</td><td style='width: 20%; text-align: center;'><strong style='color:$StatusColor'>$($Row.Status)</strong></td></tr>"
 }
 
-$HtmlFile = "$ReportDir\HardwareScan_${TicketNumber}_$RunTimeStamp.html"
-$PdfFile  = "$ReportDir\HardwareScan_${TicketNumber}_$RunTimeStamp.pdf"
+$HtmlFile = "$ReportDir\HardwareScan_${TicketNumber}_$CustomerName.html"
+$PdfFile  = "$ReportDir\HardwareScan_${TicketNumber}_$CustomerName.pdf"
 
 $HtmlContent = @"
 <!DOCTYPE html>
@@ -358,7 +360,7 @@ $HtmlContent = @"
 </table>
 
 <div class="footer">
-    &copy; $(Get-Date -Format yyyy) by Apollo Technology LTD. Automated Diagnostic Engine v$Version.
+    &copy; $(Get-Date -Format yyyy) by Apollo Technology LTD. Created by Lewis Wiltshire (Apollo Technology).
 </div>
 </body>
 </html>
@@ -416,3 +418,5 @@ if ($VerboseMode) {
     Write-Host "Stopping Verbose Logging..." -ForegroundColor DarkGray
     Stop-Transcript | Out-Null
 }
+
+Pause
