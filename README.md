@@ -2,7 +2,7 @@
 
 
 > [!NOTE]
-> Version 1.0 has been released!
+> Version 3.6 has been released!
 
 ## 🚀 Quick Start
 

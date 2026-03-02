@@ -322,8 +322,8 @@ foreach ($Row in $ReportItems) {
     $TableRows += "<tr><td style='width: 25%;'><strong>$($Row.Component)</strong></td><td style='width: 55%;'>$($Row.Details)</td><td style='width: 20%; text-align: center;'><strong style='color:$StatusColor'>$($Row.Status)</strong></td></tr>"
 }
 
-$HtmlFile = "$ReportDir\UltimateScan_${TicketNumber}_$RunTimeStamp.html"
-$PdfFile  = "$ReportDir\UltimateScan_${TicketNumber}_$RunTimeStamp.pdf"
+$HtmlFile = "$ReportDir\HardwareScan_${TicketNumber}_$RunTimeStamp.html"
+$PdfFile  = "$ReportDir\HardwareScan_${TicketNumber}_$RunTimeStamp.pdf"
 
 $HtmlContent = @"
 <!DOCTYPE html>
@@ -416,9 +416,3 @@ if ($VerboseMode) {
     Write-Host "Stopping Verbose Logging..." -ForegroundColor DarkGray
     Stop-Transcript | Out-Null
 }
-
-Write-Host "`n------------------------------------------------------------"
-Write-Host "          PROCESS COMPLETED" -ForegroundColor Green
-if (Test-Path $PublicDesktopPdf) { Start-Process $PublicDesktopPdf; Start-Sleep -Seconds 1 }
-Write-Host "------------------------------------------------------------"
-exit
