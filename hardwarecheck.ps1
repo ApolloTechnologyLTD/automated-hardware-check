@@ -1,19 +1,21 @@
 <#
 .SYNOPSIS
-    Apollo Technology Hardware Diagnostics Utility v1.0
+    Apollo Technology Deep Hardware Diagnostics v2.0
 .DESCRIPTION
-    Menu-driven utility to automatically scan, verify, and report on system hardware health.
-    - INCLUDES: CPU, RAM, Disk Health, GPU, Network, USB Error Checking, Battery Health.
-    - FEATURES: Anti-Sleep, Anti-Freeze, PDF Edge Reporting, Email Delivery.
+    Highly detailed, automated hardware and OS evaluation tool.
+    - NEW CHECKS: Motherboard/BIOS Serials, RAM Topology & Speeds, SSD/NVMe vs HDD detection.
+    - NEW CHECKS: Windows Security (AV, Firewall, BitLocker), OS Uptime, OS Activation Status.
+    - FEATURES: Auto-Elevation, Anti-Sleep, PDF Reporting via Edge, Email Delivery.
 #>
 
 # --- 0. CONFIGURATION ---
-$VerboseMode = $false         # Set to $true to log all script output to C:\temp\hwcheck
-$LogoUrl = "https://raw.githubusercontent.com/ApolloTechnologyLTD/computer-health-check/main/Apollo%20Cropped.png"
-$Version = "1.0"
+$VerboseMode  = $false
+$LogoUrl      = "https://raw.githubusercontent.com/ApolloTechnologyLTD/computer-health-check/main/Apollo%20Cropped.png"
+$Version      = "2.0 Deep Scan"
+$ReportDir    = "C:\HardwareReports"
 
 # --- EMAIL SETTINGS ---
-$EmailEnabled = $false       # Set to $true to enable email
+$EmailEnabled = $false
 $SmtpServer   = "smtp.office365.com"
 $SmtpPort     = 587
 $FromAddress  = "reports@yourdomain.com"
@@ -22,68 +24,29 @@ $UseSSL       = $true
 
 # --- 1. AUTO-ELEVATE TO ADMINISTRATOR ---
 $CurrentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-$isAdmin = $CurrentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-
-if (!($isAdmin)) {
-    Write-Host "Requesting Administrator privileges..." -ForegroundColor Yellow
-    try {
-        Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
-        Exit
-    }
-    catch {
-        Write-Error "Failed to elevate. Please run as Administrator manually."
-        Pause
-        Exit
-    }
-}
-
-# --- 1.5 VERBOSE LOGGING SETUP & WARNING ---
-if ($VerboseMode) {
-    $VerboseDir = "C:\temp\hwcheck"
-    if (!(Test-Path $VerboseDir)) {
-        New-Item -ItemType Directory -Path $VerboseDir -Force | Out-Null
-    }
-    
-    $LogTimeStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-    $TranscriptPath = "$VerboseDir\hwcheck_logs_$LogTimeStamp.txt"
-    
-    Start-Transcript -Path $TranscriptPath -Force | Out-Null
-    
-    Clear-Host
-    Write-Host "`n=================================================================================" -ForegroundColor Magenta
-    Write-Host " [ WARNING: VERBOSE LOGGING IS ENABLED ]" -ForegroundColor Red
-    Write-Host "=================================================================================" -ForegroundColor Magenta
-    Write-Host " All console output and errors are currently being recorded."
-    Write-Host " Log File Location: " -NoNewline; Write-Host $TranscriptPath -ForegroundColor Cyan
-    Write-Host "`n---------------------------------------------------------------------------------" -ForegroundColor DarkGray
-    $null = Read-Host " Press [ENTER] to acknowledge and continue"
+if (!($CurrentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))) {
+    Write-Host "Requesting Administrator privileges for deep hardware access..." -ForegroundColor Yellow
+    try { Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs; Exit }
+    catch { Write-Error "Failed to elevate. Please run as Administrator manually."; Pause; Exit }
 }
 
 # --- 2. PREVENT FREEZING & SLEEPING ---
 $consoleFuncs = @"
-using System;
-using System.Runtime.InteropServices;
+using System; using System.Runtime.InteropServices;
 public class ConsoleUtils {
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern IntPtr GetStdHandle(int nStdHandle);
-    [DllImport("kernel32.dll")]
-    public static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
-    [DllImport("kernel32.dll")]
-    public static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+    [DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int nStdHandle);
+    [DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+    [DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
     public static void DisableQuickEdit() {
-        IntPtr hConsole = GetStdHandle(-10);
-        uint mode;
-        GetConsoleMode(hConsole, out mode);
-        mode &= ~0x0040u;
-        SetConsoleMode(hConsole, mode);
+        IntPtr hConsole = GetStdHandle(-10); uint mode;
+        GetConsoleMode(hConsole, out mode); mode &= ~0x0040u; SetConsoleMode(hConsole, mode);
     }
 }
 "@
 try { Add-Type -TypeDefinition $consoleFuncs -Language CSharp; [ConsoleUtils]::DisableQuickEdit() } catch { }
 
 $sleepBlocker = @"
-using System;
-using System.Runtime.InteropServices;
+using System; using System.Runtime.InteropServices;
 public class SleepUtils {
     [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     public static extern uint SetThreadExecutionState(uint esFlags);
@@ -95,17 +58,16 @@ try { Add-Type -TypeDefinition $sleepBlocker -Language CSharp; $null = [SleepUti
 function Show-Header {
     Clear-Host
     $Banner = @'
-   __  _____    ____  ____ _       __ ___    ____  ______
-  / / / /   |  / __ \/ __ \ |     / //   |  / __ \/ ____/
- / /_/ / /| | / /_/ / / / / | /| / // /| | / /_/ / __/   
-/ __  / ___ |/ _, _/ /_/ /| |/ |/ // ___ |/ _, _/ /___   
-/_/ /_/_/  |_/_/ |_/_____/ |__/|__/_/  |_/_/ |_/_____/   
+    ____  ____________________     ____  _______    ____  ____  ____  ______
+   / __ \/ ____/ ____/ __ \__ \   / __ \/ ____/ |  / / / / / / / / / /_  __/
+  / / / / __/ / __/ / /_/ /_/ /  / / / / __/  | | / / /_/ / / / / /   / /   
+ / /_/ / /___/ /___/ ____/ __/  / /_/ / /___  | |/ / __  / /_/ / /___/ /    
+/_____/_____/_____/_/   /_/    /_____/_____/  |___/_/ /_/\____/_____/_/     
 '@
     Write-Host $Banner -ForegroundColor Cyan
-    Write-Host "`n   HARDWARE DIAGNOSTICS TOOL v$Version" -ForegroundColor White
+    Write-Host "`n   DEEP HARDWARE DIAGNOSTICS TOOL v$Version" -ForegroundColor White
     Write-Host "=================================================================================" -ForegroundColor DarkGray
     Write-Host "        [NOTICE] Running in Elevated Permissions" -ForegroundColor Red 
-    Write-Host "      [POWER] Sleep Mode & Screen Timeout Blocked." -ForegroundColor DarkGray
 }
 
 # --- 4. MAIN MENU & INPUTS ---
@@ -125,160 +87,206 @@ if ($EmailEnabled) {
 
 # --- 5. HARDWARE CHECKS ---
 $ReportItems = @()
-$RunTimeStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$ReportDir = "C:\HardwareReports"
 if (!(Test-Path $ReportDir)) { New-Item -ItemType Directory -Path $ReportDir -Force | Out-Null }
 
 Show-Header
-Write-Host "`n[ EXECUTING HARDWARE DIAGNOSTICS ]" -ForegroundColor Yellow
+Write-Host "`n[ EXECUTING DEEP HARDWARE DIAGNOSTICS ]" -ForegroundColor Yellow
 
-$DiagnosticsList = @("System Info", "CPU Status", "Memory (RAM)", "Disk Drives", "Display / GPU", "Network Adapters", "USB Devices", "Battery (If Present)")
+$DiagnosticsList = @("OS & Security", "Motherboard", "Processor", "Memory", "Storage", "Graphics", "Network", "USB", "Battery")
 $TotalTasks = $DiagnosticsList.Count
 $CurrentTask = 0
 
-function Add-Result($Component, $Details, $Status) {
-    $script:ReportItems += [PSCustomObject]@{ Component = $Component; Details = $Details; Status = $Status }
+function Add-Result($Category, $Component, $Details, $Status) {
+    $script:ReportItems += [PSCustomObject]@{ Category = $Category; Component = $Component; Details = $Details; Status = $Status }
 }
 
-# 1. System Info
-$CurrentTask++; Write-Progress -Activity "Scanning Hardware" -Status "Checking $($DiagnosticsList[0])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
-Write-Host "   [$CurrentTask/$TotalTasks] Checking System Information..." -ForegroundColor Green
-$SysInfo = Get-CimInstance Win32_ComputerSystem
-$Bios = Get-CimInstance Win32_BIOS
-Add-Result "System" "Model: $($SysInfo.Model) | BIOS: $($Bios.SMBIOSBIOSVersion)" "OK"
-Start-Sleep -Milliseconds 500
+# 1. OS & Security Check
+$CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($DiagnosticsList[0])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
+Write-Host "   [$CurrentTask/$TotalTasks] Checking OS, Uptime, and Security..." -ForegroundColor Green
+$OS = Get-CimInstance Win32_OperatingSystem
+$UptimeDays = [math]::Round(((Get-Date) - $OS.LastBootUpTime).TotalDays, 1)
 
-# 2. CPU
-$CurrentTask++; Write-Progress -Activity "Scanning Hardware" -Status "Checking $($DiagnosticsList[1])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
-Write-Host "   [$CurrentTask/$TotalTasks] Checking CPU Status..." -ForegroundColor Green
+try { $AV = Get-CimInstance -Namespace "root\SecurityCenter2" -Class AntivirusProduct -ErrorAction Stop | Select-Object -ExpandProperty displayName -First 1 } catch { $AV = "Windows Defender / Unknown" }
+try { 
+    $BitLocker = Get-CimInstance -Namespace "root\CIMv2\Security\MicrosoftVolumeEncryption" -Class Win32_EncryptableVolume -Filter "DriveLetter='C:'" -ErrorAction Stop
+    $BLStatus = if ($BitLocker.ProtectionStatus -eq 1) { "Encrypted" } else { "Decrypted/Suspended" }
+} catch { $BLStatus = "Not Supported / Off" }
+
+$License = Get-CimInstance SoftwareLicensingProduct -Filter "PartialProductKey is not NULL" | Select-Object -First 1
+$Activation = if ($License.LicenseStatus -eq 1) { "Activated" } else { "Not Activated" }
+
+Add-Result "OS & Security" "Windows OS" "<b>Version:</b> $($OS.Caption) ($($OS.OSArchitecture))<br><b>Uptime:</b> $UptimeDays Days<br><b>Activation:</b> $Activation" "OK"
+Add-Result "OS & Security" "Security Status" "<b>Antivirus:</b> $AV<br><b>C: Drive BitLocker:</b> $BLStatus" (if ($BLStatus -eq "Encrypted") {"Pass"} else {"Warning"})
+
+# 2. Motherboard & BIOS
+$CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($DiagnosticsList[1])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
+Write-Host "   [$CurrentTask/$TotalTasks] Checking Motherboard & BIOS..." -ForegroundColor Green
+$Board = Get-CimInstance Win32_BaseBoard
+$Bios = Get-CimInstance Win32_BIOS
+Add-Result "Motherboard" "Baseboard" "<b>MFR:</b> $($Board.Manufacturer)<br><b>Product:</b> $($Board.Product)<br><b>Serial:</b> $($Board.SerialNumber)" "OK"
+Add-Result "Motherboard" "BIOS / UEFI" "<b>Version:</b> $($Bios.SMBIOSBIOSVersion)<br><b>Date:</b> $($Bios.ReleaseDate.ToString('yyyy-MM-dd'))" "OK"
+
+# 3. CPU
+$CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($DiagnosticsList[2])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
+Write-Host "   [$CurrentTask/$TotalTasks] Checking Processor & Caches..." -ForegroundColor Green
 $CPU = Get-CimInstance Win32_Processor
 $CpuStatus = if ($CPU.Status -eq "OK") { "Pass" } else { "Warning" }
-Add-Result "CPU" "Name: $($CPU.Name) | Cores: $($CPU.NumberOfCores) | Load: $($CPU.LoadPercentage)%" $CpuStatus
-Start-Sleep -Milliseconds 500
+$VirtStatus = if ($CPU.VirtualizationFirmwareEnabled) { "Enabled" } else { "Disabled" }
+Add-Result "Processor" "CPU Spec" "<b>Model:</b> $($CPU.Name)<br><b>Cores/Threads:</b> $($CPU.NumberOfCores)C / $($CPU.NumberOfLogicalProcessors)T<br><b>Base Clock:</b> $($CPU.MaxClockSpeed) MHz<br><b>Virtualization:</b> $VirtStatus<br><b>L3 Cache:</b> $($CPU.L3CacheSize) KB" $CpuStatus
 
-# 3. RAM
-$CurrentTask++; Write-Progress -Activity "Scanning Hardware" -Status "Checking $($DiagnosticsList[2])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
-Write-Host "   [$CurrentTask/$TotalTasks] Checking Physical Memory..." -ForegroundColor Green
-$RAM = Get-CimInstance Win32_PhysicalMemory
-$TotalRamGB = [math]::Round(($RAM | Measure-Object Capacity -Sum).Sum / 1GB, 2)
-$MemStatus = if ($TotalRamGB -ge 4) { "Pass" } else { "Low Memory" }
-Add-Result "RAM" "Total Installed: ${TotalRamGB}GB | Sticks: $($RAM.Count)" $MemStatus
-Start-Sleep -Milliseconds 500
+# 4. RAM
+$CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($DiagnosticsList[3])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
+Write-Host "   [$CurrentTask/$TotalTasks] Checking Memory Topology..." -ForegroundColor Green
+$RAMs = Get-CimInstance Win32_PhysicalMemory
+$TotalRamGB = [math]::Round(($RAMs | Measure-Object Capacity -Sum).Sum / 1GB, 2)
+$MemStatus = if ($TotalRamGB -ge 8) { "Pass" } else { "Low Memory" }
 
-# 4. Disks
-$CurrentTask++; Write-Progress -Activity "Scanning Hardware" -Status "Checking $($DiagnosticsList[3])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
-Write-Host "   [$CurrentTask/$TotalTasks] Checking Disk SMART/Health Status..." -ForegroundColor Green
-$Disks = Get-CimInstance Win32_DiskDrive
-foreach ($Disk in $Disks) {
-    $SizeGB = [math]::Round($Disk.Size / 1GB, 2)
-    $Status = if ($Disk.Status -eq "OK") { "Pass" } else { "FAIL" }
-    Add-Result "Disk" "$($Disk.Model) (${SizeGB}GB)" $Status
+$RamDetails = "<b>Total Capacity:</b> ${TotalRamGB} GB<br>"
+foreach ($stick in $RAMs) {
+    $Size = [math]::Round($stick.Capacity / 1GB, 1)
+    $RamDetails += "• $($stick.DeviceLocator): ${Size}GB $($stick.Manufacturer) @ $($stick.Speed)MHz (PN: $($stick.PartNumber.Trim()))<br>"
 }
-Start-Sleep -Milliseconds 500
+Add-Result "Memory" "RAM Topology" $RamDetails $MemStatus
 
-# 5. GPU
-$CurrentTask++; Write-Progress -Activity "Scanning Hardware" -Status "Checking $($DiagnosticsList[4])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
-Write-Host "   [$CurrentTask/$TotalTasks] Checking Display Adapters..." -ForegroundColor Green
+# 5. Storage
+$CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($DiagnosticsList[4])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
+Write-Host "   [$CurrentTask/$TotalTasks] Checking Disks & SMART..." -ForegroundColor Green
+try {
+    # Using Storage namespace for accurate SSD vs HDD
+    $PhysDisks = Get-CimInstance -ClassName MSFT_PhysicalDisk -Namespace root\Microsoft\Windows\Storage
+    foreach ($Disk in $PhysDisks) {
+        $Type = switch ($Disk.MediaType) { 3 {"HDD"} 4 {"SSD"} Default {"Unknown"} }
+        $Bus  = $Disk.BusType
+        $SizeGB = [math]::Round($Disk.Size / 1GB, 2)
+        $Status = if ($Disk.HealthStatus -eq 0) { "Pass" } else { "Warning" }
+        Add-Result "Storage" "Drive: $($Disk.FriendlyName)" "<b>Type:</b> $Type ($Bus)<br><b>Capacity:</b> ${SizeGB} GB<br><b>Serial:</b> $($Disk.SerialNumber.Trim())" $Status
+    }
+} catch {
+    # Fallback to standard WMI
+    $Disks = Get-CimInstance Win32_DiskDrive
+    foreach ($Disk in $Disks) {
+        $SizeGB = [math]::Round($Disk.Size / 1GB, 2)
+        $Status = if ($Disk.Status -eq "OK") { "Pass" } else { "FAIL" }
+        Add-Result "Storage" "Drive: $($Disk.Model)" "<b>Capacity:</b> ${SizeGB} GB<br><b>Interface:</b> $($Disk.InterfaceType)<br><b>Partitions:</b> $($Disk.Partitions)" $Status
+    }
+}
+
+# 6. Graphics
+$CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($DiagnosticsList[5])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
+Write-Host "   [$CurrentTask/$TotalTasks] Checking GPUs..." -ForegroundColor Green
 $GPUs = Get-CimInstance Win32_VideoController
 foreach ($GPU in $GPUs) {
     $Status = if ($GPU.Status -eq "OK") { "Pass" } else { "Error" }
-    Add-Result "GPU" "$($GPU.Name) | Driver: $($GPU.DriverVersion)" $Status
+    $VRAM = if ($GPU.AdapterRAM) { [math]::Round($GPU.AdapterRAM / 1MB, 0) } else { "Dynamic" }
+    $Res = if ($GPU.CurrentHorizontalResolution) { "$($GPU.CurrentHorizontalResolution) x $($GPU.CurrentVerticalResolution) @ $($GPU.CurrentRefreshRate)Hz" } else { "Inactive Display" }
+    Add-Result "Graphics" "$($GPU.Name)" "<b>Driver:</b> $($GPU.DriverVersion)<br><b>VRAM:</b> $VRAM MB<br><b>Current Res:</b> $Res" $Status
 }
-Start-Sleep -Milliseconds 500
 
-# 6. Network
-$CurrentTask++; Write-Progress -Activity "Scanning Hardware" -Status "Checking $($DiagnosticsList[5])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
-Write-Host "   [$CurrentTask/$TotalTasks] Checking Network Adapters..." -ForegroundColor Green
-$Nets = Get-CimInstance Win32_NetworkAdapter | Where-Object { $_.PhysicalAdapter -eq $true }
+# 7. Network
+$CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($DiagnosticsList[6])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
+Write-Host "   [$CurrentTask/$TotalTasks] Checking Network Interfaces..." -ForegroundColor Green
+$Nets = Get-CimInstance Win32_NetworkAdapter | Where-Object { $_.PhysicalAdapter -eq $true -and $_.NetConnectionStatus -ne $null }
 foreach ($Net in $Nets) {
-    $NetStatus = if ($Net.NetConnectionStatus -eq 2) { "Connected" } elseif ($Net.NetConnectionStatus -eq 7) { "Disconnected" } else { "Disabled/Other" }
-    Add-Result "Network" "$($Net.Name)" $NetStatus
+    $NetStatus = if ($Net.NetConnectionStatus -eq 2) { "Connected" } elseif ($Net.NetConnectionStatus -eq 7) { "Media Disconnected" } else { "Disabled" }
+    $Speed = if ($Net.Speed) { "$([math]::Round($Net.Speed / 1MB, 0)) Mbps" } else { "N/A" }
+    Add-Result "Network" "$($Net.Name)" "<b>MAC:</b> $($Net.MACAddress)<br><b>Speed:</b> $Speed" $NetStatus
 }
-Start-Sleep -Milliseconds 500
 
-# 7. USB Errors
-$CurrentTask++; Write-Progress -Activity "Scanning Hardware" -Status "Checking $($DiagnosticsList[6])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
-Write-Host "   [$CurrentTask/$TotalTasks] Checking USB Device Tree for Errors..." -ForegroundColor Green
+# 8. USB
+$CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($DiagnosticsList[7])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
+Write-Host "   [$CurrentTask/$TotalTasks] Checking USB Controller Errors..." -ForegroundColor Green
 $USBErrors = Get-CimInstance Win32_PnPEntity | Where-Object { $_.DeviceID -match "USB" -and $_.ConfigManagerErrorCode -ne 0 }
 if ($USBErrors) {
-    foreach ($err in $USBErrors) { Add-Result "USB" "$($err.Name) (Error Code: $($err.ConfigManagerErrorCode))" "FAIL" }
+    foreach ($err in $USBErrors) { Add-Result "USB Devices" "USB Error Detected" "<b>Device:</b> $($err.Name)<br><b>Error Code:</b> $($err.ConfigManagerErrorCode)" "FAIL" }
 } else {
-    Add-Result "USB" "No USB controller or device errors detected." "Pass"
-}
-Start-Sleep -Milliseconds 500
-
-# 8. Battery
-$CurrentTask++; Write-Progress -Activity "Scanning Hardware" -Status "Checking $($DiagnosticsList[7])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
-Write-Host "   [$CurrentTask/$TotalTasks] Checking Battery..." -ForegroundColor Green
-$Battery = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue
-if ($Battery) {
-    Add-Result "Battery" "Status: $($Battery.Status) | Charge: $($Battery.EstimatedChargeRemaining)%" "Pass"
-} else {
-    Add-Result "Battery" "No battery detected (Desktop PC)." "N/A"
+    Add-Result "USB Devices" "USB Host Controllers" "No driver or hardware errors detected on the USB bus." "Pass"
 }
 
-Write-Progress -Activity "Scanning Hardware" -Completed
+# 9. Battery
+$CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($DiagnosticsList[8])" -PercentComplete (($CurrentTask/$TotalTasks)*100)
+Write-Host "   [$CurrentTask/$TotalTasks] Checking Battery Health..." -ForegroundColor Green
+try {
+    $BatFull = Get-CimInstance -ClassName BatteryFullChargedCapacity -Namespace root\wmi -ErrorAction Stop
+    $BatStat = Get-CimInstance -ClassName BatteryStaticData -Namespace root\wmi -ErrorAction Stop
+    $Wear = [math]::Round((1 - ($BatFull.FullChargedCapacity / $BatStat.DesignedCapacity)) * 100, 1)
+    $WearStatus = if ($Wear -lt 25) { "Pass" } elseif ($Wear -lt 40) { "Warning" } else { "Degraded" }
+    Add-Result "Battery" "Internal Battery" "<b>Design Capacity:</b> $($BatStat.DesignedCapacity) mWh<br><b>Full Charge Cap:</b> $($BatFull.FullChargedCapacity) mWh<br><b>Wear Level:</b> $Wear %" $WearStatus
+} catch {
+    $Battery = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue
+    if ($Battery) { Add-Result "Battery" "Standard Battery" "<b>Status:</b> $($Battery.Status)<br><b>Charge:</b> $($Battery.EstimatedChargeRemaining)%" "Pass" } 
+    else { Add-Result "Battery" "Standard Battery" "No battery detected (Likely Desktop PC)." "N/A" }
+}
+
+Write-Progress -Activity "Scanning System" -Completed
 
 # --- 6. REPORT GENERATION ---
 Write-Host "`n[ REPORT GENERATION ]" -ForegroundColor Yellow
 $CurrentDate = Get-Date -Format "yyyy-MM-dd HH:mm"
-$TransferTableRows = ""
+$RunTimeStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+
+$TableRows = ""
+$CurrentCategory = ""
 
 foreach ($Row in $ReportItems) {
-    $StatusColor = switch -Regex ($Row.Status) {
-        "Pass|OK|Connected" { "green" }
-        "Warning|Low Memory|Disconnected" { "darkorange" }
-        "FAIL|Error" { "red" }
-        Default { "#555" }
+    if ($Row.Category -ne $CurrentCategory) {
+        $TableRows += "<tr class='category-row'><td colspan='3'>$($Row.Category)</td></tr>"
+        $CurrentCategory = $Row.Category
     }
-    $TransferTableRows += "<tr><td><strong>$($Row.Component)</strong></td><td>$($Row.Details)</td><td><strong style='color:$StatusColor'>$($Row.Status)</strong></td></tr>"
+
+    $StatusColor = switch -Regex ($Row.Status) {
+        "Pass|OK|Connected|Activated|Encrypted" { "#28a745" }
+        "Warning|Low Memory|Degraded" { "#fd7e14" }
+        "FAIL|Error|Not Activated" { "#dc3545" }
+        Default { "#6c757d" }
+    }
+    $TableRows += "<tr><td style='width: 25%;'><strong>$($Row.Component)</strong></td><td style='width: 55%;'>$($Row.Details)</td><td style='width: 20%; text-align: center;'><strong style='color:$StatusColor'>$($Row.Status)</strong></td></tr>"
 }
 
-$HtmlFile = "$ReportDir\HW_Report_${TicketNumber}_$RunTimeStamp.html"
-$PdfFile  = "$ReportDir\HW_Report_${TicketNumber}_$RunTimeStamp.pdf"
+$HtmlFile = "$ReportDir\DeepScan_${TicketNumber}_$RunTimeStamp.html"
+$PdfFile  = "$ReportDir\DeepScan_${TicketNumber}_$RunTimeStamp.pdf"
 
 $HtmlContent = @"
 <!DOCTYPE html>
 <html>
 <head>
 <style>
-    body { font-family: 'Segoe UI', sans-serif; color: #333; padding: 20px; }
-    .header { text-align: center; margin-bottom: 20px; }
-    h1 { color: #0056b3; margin-bottom: 5px; }
-    .meta { font-size: 0.9em; color: #666; text-align: center; margin-bottom: 30px; }
-    .section { background: #f9f9f9; padding: 15px; border-left: 6px solid #0056b3; margin-bottom: 20px; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
-    th { text-align: left; background: #eee; padding: 8px; border-bottom: 1px solid #ddd; }
-    td { padding: 8px; border-bottom: 1px solid #ddd; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; padding: 30px; line-height: 1.4; }
+    .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #0056b3; padding-bottom: 10px; }
+    h1 { color: #0056b3; margin-bottom: 5px; font-size: 24px; }
+    .meta { font-size: 14px; color: #555; display: flex; justify-content: space-between; margin-top: 15px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    th { text-align: left; background: #0056b3; color: white; padding: 10px; }
+    td { padding: 10px; border-bottom: 1px solid #e0e0e0; vertical-align: top; }
+    .category-row td { background: #f0f4f8; font-weight: bold; font-size: 14px; color: #0056b3; text-transform: uppercase; border-top: 2px solid #d0dce8; }
+    b { color: #222; }
+    .footer { text-align: center; font-size: 11px; color: #888; margin-top: 40px; border-top: 1px solid #ddd; padding-top: 10px; }
 </style>
 </head>
 <body>
 <div class="header">
-    <img src="$LogoUrl" alt="Apollo Technology" style="max-height:100px;">
-    <h1>Hardware Diagnostics Report</h1>
-    <p>Report generated by <strong>$EngineerName</strong> for ticket (<strong>$TicketNumber</strong>)</p>
+    <img src="$LogoUrl" alt="Apollo Technology" style="max-height:80px;">
+    <h1>Deep Hardware Forensic Audit</h1>
     <div class="meta">
-        <strong>Date:</strong> $CurrentDate | <strong>Customer:</strong> $CustomerName
+        <div><strong>Ticket:</strong> $TicketNumber<br><strong>Customer:</strong> $CustomerName</div>
+        <div style="text-align: right;"><strong>Date:</strong> $CurrentDate<br><strong>Engineer:</strong> $EngineerName</div>
     </div>
 </div>
-<h2>Workstation Information</h2>
-<div class="section">
-    <strong>Computer Name:</strong> $env:COMPUTERNAME <br>
-    <strong>OS Version:</strong> $((Get-CimInstance Win32_OperatingSystem).Caption) <br>
-    <strong>Engineer:</strong> $EngineerName
+
+<table>
+    <thead><tr><th>Component</th><th>Detailed Specifications</th><th style='text-align: center;'>Health / Status</th></tr></thead>
+    <tbody>$TableRows</tbody>
+</table>
+
+<div class="footer">
+    &copy; $(Get-Date -Format yyyy) by Apollo Technology LTD. Automated Forensic Evaluation Engine v$Version.
 </div>
-<h2>Diagnostics Results</h2>
-<div class="section">
-    <table><thead><tr><th>Component</th><th>Details</th><th>Status</th></tr></thead><tbody>$TransferTableRows</tbody></table>
-</div>
-<p style="text-align:center; font-size:0.8em; color:#888; margin-top:50px;">&copy; $(Get-Date -Format yyyy) by Apollo Technology.</p>
 </body>
 </html>
 "@
 
 $HtmlContent | Out-File -FilePath $HtmlFile -Encoding UTF8
 
-# Convert to PDF
+# Convert to PDF via Edge
 $EdgeLoc1 = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 $EdgeLoc2 = "C:\Program Files\Microsoft\Edge\Application\msedge.exe"
 $EdgeExe = if (Test-Path $EdgeLoc1) { $EdgeLoc1 } elseif (Test-Path $EdgeLoc2) { $EdgeLoc2 } else { $null }
@@ -311,22 +319,15 @@ if ($EmailEnabled -and $PdfFile -and (Test-Path $PdfFile)) {
     Write-Host "`n[ EMAIL REPORT ]" -ForegroundColor Yellow
     Write-Host "   Sending Email to $ToAddress..." -ForegroundColor Cyan
     try {
-        Send-MailMessage -From $FromAddress -To $ToAddress -Subject "Hardware Check: $env:COMPUTERNAME ($TicketNumber)" -Body "Attached is the hardware report for Ticket $TicketNumber ($CustomerName)." -SmtpServer $SmtpServer -Port $SmtpPort -UseSsl $UseSSL -Credential $EmailCreds -Attachments $PdfFile -ErrorAction Stop
+        Send-MailMessage -From $FromAddress -To $ToAddress -Subject "Deep Hardware Audit: $env:COMPUTERNAME ($TicketNumber)" -Body "Attached is the forensic hardware report for Ticket $TicketNumber ($CustomerName)." -SmtpServer $SmtpServer -Port $SmtpPort -UseSsl $UseSSL -Credential $EmailCreds -Attachments $PdfFile -ErrorAction Stop
         Write-Host "   > Email Sent Successfully!" -ForegroundColor Green
     } catch {
         Write-Error "   > Failed to send email. Error: $_"
     }
 }
 
-# --- ALLOW SLEEP AGAIN ---
 try { [SleepUtils]::SetThreadExecutionState(0x80000000) | Out-Null } catch { }
 
 Write-Host "`n[ COMPLETE ]" -ForegroundColor Green
-Write-Host "Diagnostics finished. The report has been opened."
-
-if ($VerboseMode) {
-    Write-Host "Stopping Verbose Logging..." -ForegroundColor DarkGray
-    Stop-Transcript | Out-Null
-}
-
+Write-Host "Deep Diagnostics finished. The report has been opened."
 Pause
