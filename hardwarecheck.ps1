@@ -1,17 +1,20 @@
 <#
 .SYNOPSIS
-    Apollo Technology Ultimate Hardware & OS Diagnostics v3.1
+    Apollo Technology Ultimate Hardware & OS Diagnostics v3.2
 .DESCRIPTION
     The most comprehensive native PowerShell hardware diagnostic tool.
+    - INCLUDES: TPM, Secure Boot, Firewall, IP/Wi-Fi, Audio, Universal Device Errors, Logical Volumes.
     - PATCHED: Subexpression parser bug in System & Boot.
     - PATCHED: Date conversion error for CimInstance objects.
     - PATCHED: Divide-by-zero errors for ghost/unformatted partitions.
+    - RESTORED: Verbose Transcript logging for background debugging.
+    - FEATURES: Auto-Elevation, Anti-Sleep, PDF Reporting via Edge, Email Delivery.
 #>
 
 # --- 0. CONFIGURATION ---
-$VerboseMode  = $true
+$VerboseMode  = $true        # Set to $true to log raw background processes to C:\temp\hwcheck
 $LogoUrl      = "https://raw.githubusercontent.com/ApolloTechnologyLTD/computer-health-check/main/Apollo%20Cropped.png"
-$Version      = "3.1 Ultimate"
+$Version      = "3.2 Ultimate"
 $ReportDir    = "C:\HardwareReports"
 
 # --- EMAIL SETTINGS ---
@@ -28,6 +31,26 @@ if (!($CurrentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Admini
     Write-Host "Requesting Administrator privileges for deep hardware access..." -ForegroundColor Yellow
     try { Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs; Exit }
     catch { Write-Error "Failed to elevate. Please run as Administrator manually."; Pause; Exit }
+}
+
+# --- 1.5 VERBOSE LOGGING SETUP ---
+if ($VerboseMode) {
+    $VerboseDir = "C:\temp\hwcheck"
+    if (!(Test-Path $VerboseDir)) { New-Item -ItemType Directory -Path $VerboseDir -Force | Out-Null }
+    
+    $LogTimeStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+    $TranscriptPath = "$VerboseDir\hwcheck_verbose_$LogTimeStamp.txt"
+    
+    Start-Transcript -Path $TranscriptPath -Force | Out-Null
+    
+    Clear-Host
+    Write-Host "`n=================================================================================" -ForegroundColor Magenta
+    Write-Host " [ WARNING: VERBOSE LOGGING IS ENABLED ]" -ForegroundColor Red
+    Write-Host "=================================================================================" -ForegroundColor Magenta
+    Write-Host " All console output and background errors are currently being recorded."
+    Write-Host " Log File Location: " -NoNewline; Write-Host $TranscriptPath -ForegroundColor Cyan
+    Write-Host "`n---------------------------------------------------------------------------------" -ForegroundColor DarkGray
+    $null = Read-Host " Press [ENTER] to acknowledge and continue"
 }
 
 # --- 2. PREVENT FREEZING & SLEEPING ---
@@ -63,7 +86,7 @@ function Show-Header {
   / /| | / /_/ / / / / /   / /   / / / /    / / / __/ / /   / /_/ /  |/ / / / / /   / / / / / __   \  / 
  / ___ |/ ____/ /_/ / /___/ /___/ /_/ /    / / / /___/ /___/ __  / /|  / /_/ / /___/ /_/ / /_/ /   / /  
 /_/  |_/_/    \____/_____/_____/\____/    /_/ /_____/\____/_/ /_/_/ |_/\____/_____/\____/\____/   /_/   
-
+                                                                                                        
 '@
     Write-Host $Banner -ForegroundColor Cyan
     Write-Host "`n   ULTIMATE HARDWARE DIAGNOSTICS TOOL v$Version" -ForegroundColor White
@@ -123,7 +146,6 @@ Write-Host "   [$CurrentTask/$TotalTasks] Checking OS, Updates, and Security Pol
 $OS = Get-CimInstance Win32_OperatingSystem
 $UptimeDays = [math]::Round(((Get-Date) - $OS.LastBootUpTime).TotalDays, 1)
 
-# Fix: Get-CimInstance naturally returns dates as [datetime] objects.
 $InstallDate = if ($OS.InstallDate) { $OS.InstallDate.ToString("yyyy-MM-dd") } else { "Unknown" }
 
 try { $AV = Get-CimInstance -Namespace "root\SecurityCenter2" -Class AntivirusProduct -ErrorAction Stop | Select-Object -ExpandProperty displayName -First 1 } catch { $AV = "Windows Defender / Unknown" }
@@ -206,7 +228,6 @@ $CurrentTask++; Write-Progress -Activity "Scanning System" -Status "Checking $($
 Write-Host "   [$CurrentTask/$TotalTasks] Checking Partition Space..." -ForegroundColor Green
 $Volumes = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" # Fixed Local Disks Only
 foreach ($Vol in $Volumes) {
-    # FIX: Prevent Divide By Zero on empty/ghost drives
     if ($Vol.Size -gt 0) {
         $TotalGB = [math]::Round($Vol.Size / 1GB, 2)
         $FreeGB  = [math]::Round($Vol.FreeSpace / 1GB, 2)
@@ -389,4 +410,11 @@ try { [SleepUtils]::SetThreadExecutionState(0x80000000) | Out-Null } catch { }
 
 Write-Host "`n[ COMPLETE ]" -ForegroundColor Green
 Write-Host "Ultimate Diagnostics finished. The report has been opened."
+
+# --- 8. STOP LOGGING ---
+if ($VerboseMode) {
+    Write-Host "Stopping Verbose Logging..." -ForegroundColor DarkGray
+    Stop-Transcript | Out-Null
+}
+
 Pause
