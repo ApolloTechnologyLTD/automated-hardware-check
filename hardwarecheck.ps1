@@ -164,7 +164,7 @@ if (Test-Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager") { if ((G
 $License = Get-CimInstance SoftwareLicensingProduct -Filter "PartialProductKey is not NULL" | Select-Object -First 1
 $Activation = if ($License.LicenseStatus -eq 1) { "Activated" } else { "Not Activated" }
 
-$SecStatus = if ($BLStatus -eq "Encrypted") {"Pass"} else {"Warning"}
+$SecStatus = if ($BLStatus -eq "Encrypted" -or $BLStatus -eq "Decrypted/Suspended") {"Pass"} else {"Warning"}
 $RebootStatus = if ($PendingReboot) {"Warning"} else {"Pass"}
 
 Add-Result "OS & Security" "Windows OS" "<b>Version:</b> $($OS.Caption) ($($OS.OSArchitecture))<br><b>Installed:</b> $InstallDate<br><b>Uptime:</b> $UptimeDays Days<br><b>Activation:</b> $Activation" "OK"
